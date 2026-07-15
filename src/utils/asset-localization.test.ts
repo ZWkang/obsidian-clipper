@@ -51,6 +51,16 @@ describe('asset localization jobs', () => {
 		]);
 	});
 
+	it('extracts extensionless URLs from image-named properties', () => {
+		const url = 'https://km.woa.com/asset/00010002260700272d72c1ddc146c601?height=972&width=997';
+		expect(extractPropertyImageReferences([
+			{ name: 'image', value: url },
+			{ name: 'source', value: url },
+		], [])).toEqual([
+			{ propertyName: 'image', url },
+		]);
+	});
+
 	it('round-trips the embedded protocol envelope without changing note content', () => {
 		const body = 'Before\n![image](https://example.com/image.png)\nAfter';
 		const job = createAssetLocalizationJob(body, [], [], 'job-123');
@@ -61,6 +71,14 @@ describe('asset localization jobs', () => {
 		expect(envelope.body).toBe(body);
 		expect(envelope.job).toEqual(job);
 		expect(note.slice(0, envelope.start) + envelope.body + note.slice(envelope.end)).toBe(`---\ntitle: Test\n---\n${body}`);
+	});
+
+	it('uses short per-job transfer keys even for data image URLs', () => {
+		const dataUrl = `data:image/png;base64,${'A'.repeat(20_000)}`;
+		const job = createAssetLocalizationJob(`![inline](${dataUrl})`, [], [], 'job-data');
+
+		expect(job.transfers).toEqual([{ url: dataUrl, key: 'asset-1' }]);
+		expect(job.transfers[0].key.length).toBeLessThan(dataUrl.length);
 	});
 
 	it('targets the selected vault in the Obsidian callback', () => {

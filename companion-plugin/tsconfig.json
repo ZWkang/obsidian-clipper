@@ -9,5 +9,5 @@
 		"lib": ["ES2020", "DOM"],
 		"types": ["node"]
 	},
-	"include": ["src/main.ts", "src/localizer.ts", "../src/utils/asset-localization-protocol.ts"]
+	"include": ["src/main.ts", "src/localizer.ts", "src/transfer-server.ts", "../src/utils/asset-localization-protocol.ts"]
 }

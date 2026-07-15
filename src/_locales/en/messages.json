@@ -225,7 +225,19 @@
 		"message": "Download images to your vault"
 	},
 	"downloadImagesToVaultDescription": {
-		"message": "Requires the Web Clipper companion plugin in the target vault. Images use your Obsidian attachment folder settings."
+		"message": "Requires the desktop Web Clipper companion plugin in the target vault. Images use your Obsidian attachment folder settings."
+	},
+	"companionServiceChecking": {
+		"message": "Discovering running companion services…"
+	},
+	"companionServicesConnected": {
+		"message": "$1 companion service(s) connected · $2"
+	},
+	"companionServiceDisconnected": {
+		"message": "No companion service found on local ports $1"
+	},
+	"companionServiceUnknownVault": {
+		"message": "Unknown vault"
 	},
 	"editTemplate": {
 		"message": "Edit template"

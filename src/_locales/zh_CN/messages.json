@@ -225,7 +225,19 @@
 		"message": "下载图片到仓库"
 	},
 	"downloadImagesToVaultDescription": {
-		"message": "需要在目标仓库中安装 Web Clipper 配套插件。图片将遵循 Obsidian 的附件目录设置。"
+		"message": "需要在目标仓库中安装桌面版 Web Clipper 配套插件。图片将遵循 Obsidian 的附件目录设置。"
+	},
+	"companionServiceChecking": {
+		"message": "正在发现已运行的配套服务…"
+	},
+	"companionServicesConnected": {
+		"message": "已连接 $1 个配套服务 · $2"
+	},
+	"companionServiceDisconnected": {
+		"message": "本地端口 $1 未发现配套服务"
+	},
+	"companionServiceUnknownVault": {
+		"message": "未知仓库"
 	},
 	"editTemplate": {
 		"message": "编辑模板"

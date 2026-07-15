@@ -25,6 +25,7 @@ import { translatePage, getMessage, setupLanguageAndDirection } from '../utils/i
 import { formatPropertyValue } from '../utils/shared';
 import { createAssetLocalizationJob } from '../utils/asset-localization';
 import { hasAssetReferences, wrapBodyWithAssetLocalizationJob } from '../utils/asset-localization-protocol';
+import { stageAssetTransferJob } from '../utils/asset-transfer-client';
 
 interface ReaderModeResponse {
 	success: boolean;
@@ -1360,6 +1361,7 @@ async function handleClipObsidian(): Promise<void> {
 
 		const frontmatter = await generateFrontmatter(properties);
 		const noteContent = noteContentField.value;
+		const selectedVault = vaultDropdown.value || currentTemplate.vault || '';
 		let fileContent = frontmatter + noteContent;
 		let assetLocalizationJobId: string | undefined;
 
@@ -1370,13 +1372,18 @@ async function handleClipObsidian(): Promise<void> {
 				generalSettings.propertyTypes,
 			);
 			if (hasAssetReferences(assetJob)) {
+				try {
+					assetJob.transferFailures = await stageAssetTransferJob(assetJob.id, assetJob.transfers, selectedVault);
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					assetJob.transferFailures = assetJob.transfers.map(({ url }) => ({ url, message }));
+				}
 				fileContent = frontmatter + wrapBodyWithAssetLocalizationJob(noteContent, assetJob);
 				assetLocalizationJobId = assetJob.id;
 			}
 		}
 
 		// Save to Obsidian
-		const selectedVault = vaultDropdown.value || currentTemplate.vault || '';
 		const isDailyNote = currentTemplate.behavior === 'append-daily' || currentTemplate.behavior === 'prepend-daily';
 		const noteName = isDailyNote ? '' : noteNameField?.value || '';
 		const path = isDailyNote ? '' : pathField?.value || '';

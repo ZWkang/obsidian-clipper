@@ -4,19 +4,19 @@ import {
 	Notice,
 	TFile,
 	normalizePath,
-	requestUrl,
 } from 'obsidian';
 import {
-	AssetLocalizationJobV1,
 	BodyImageReference,
 	PropertyImageReference,
+	collectAssetUrls,
 	parseAssetLocalizationEnvelope,
 	validateBodyReferences,
 } from '../../src/utils/asset-localization-protocol';
+import type { StagedAsset } from './transfer-server';
 
 export interface LocalizationFailure {
 	url?: string;
-	stage: 'protocol' | 'download' | 'body' | 'property' | 'cleanup';
+	stage: 'protocol' | 'transfer' | 'download' | 'body' | 'property' | 'cleanup';
 	message: string;
 }
 
@@ -29,12 +29,6 @@ export interface LocalizationResult {
 interface DownloadedAsset {
 	url: string;
 	file: TFile;
-}
-
-interface DownloadedImage {
-	data: ArrayBuffer;
-	mimeType: string;
-	contentDisposition?: string;
 }
 
 const MIME_EXTENSIONS: Record<string, string> = {
@@ -55,6 +49,7 @@ const MIME_EXTENSIONS: Record<string, string> = {
 export async function localizeAssetJob(
 	app: App,
 	params: Record<string, string>,
+	stagedAssets: Map<string, StagedAsset>,
 ): Promise<LocalizationResult> {
 	const jobId = params.job;
 	if (!jobId) {
@@ -66,21 +61,35 @@ export async function localizeAssetJob(
 	const initialEnvelope = parseAssetLocalizationEnvelope(initialContent, jobId);
 	validateBodyReferences(initialEnvelope.body, initialEnvelope.job.bodyReferences);
 
-	const failures: LocalizationFailure[] = [];
-	const uniqueUrls = collectUniqueUrls(initialEnvelope.job);
-	const downloadResults = await Promise.all(uniqueUrls.map(async url => {
-		try {
-			return { asset: await downloadAsset(app, note, url) };
-		} catch (error) {
-			return {
-				failure: {
-					url,
-					stage: 'download' as const,
-					message: errorMessage(error),
-				},
-			};
-		}
+	const failures: LocalizationFailure[] = initialEnvelope.job.transferFailures.map(failure => ({
+		url: failure.url,
+		stage: 'transfer',
+		message: failure.message,
 	}));
+	const transferFailureUrls = new Set(initialEnvelope.job.transferFailures.map(failure => failure.url));
+	const transfersByUrl = new Map(initialEnvelope.job.transfers.map(transfer => [transfer.url, transfer]));
+	const uniqueUrls = collectAssetUrls(initialEnvelope.job);
+	const downloadResults = await Promise.all(uniqueUrls
+		.filter(url => !transferFailureUrls.has(url))
+		.map(async url => {
+			try {
+				const transfer = transfersByUrl.get(url);
+				if (!transfer) throw new Error('The image transfer manifest has no key for this URL.');
+				const stagedAsset = stagedAssets.get(transfer.key);
+				if (!stagedAsset) {
+					throw new Error('The browser did not stage this image before Obsidian opened the clip.');
+				}
+				return { asset: await createAttachmentFromStagedAsset(app, note, url, stagedAsset) };
+			} catch (error) {
+				return {
+					failure: {
+						url,
+						stage: 'download' as const,
+						message: errorMessage(error),
+					},
+				};
+			}
+		}));
 
 	const assets = new Map<string, TFile>();
 	for (const result of downloadResults) {
@@ -243,70 +252,18 @@ function resolveTargetNote(app: App, params: Record<string, string>): TFile {
 	return target;
 }
 
-function collectUniqueUrls(job: AssetLocalizationJobV1): string[] {
-	return [...new Set([
-		...job.bodyReferences.map(reference => reference.url),
-		...job.propertyReferences.map(reference => reference.url),
-	])];
-}
-
-async function downloadAsset(app: App, note: TFile, url: string): Promise<DownloadedAsset> {
-	if (!/^(?:https?:\/\/|data:image\/)/i.test(url)) {
-		throw new Error('Only HTTP(S) and data image URLs can be downloaded.');
-	}
-
-	const downloaded = /^data:image\//i.test(url)
-		? decodeDataImage(url)
-		: await requestRemoteImage(url);
-	const extension = MIME_EXTENSIONS[downloaded.mimeType];
+async function createAttachmentFromStagedAsset(app: App, note: TFile, url: string, staged: StagedAsset): Promise<DownloadedAsset> {
+	const detectedType = detectImageMime(staged.data);
+	const mimeType = chooseValidatedMimeType(staged.declaredMimeType, detectedType);
+	const extension = MIME_EXTENSIONS[mimeType];
 	if (!extension) {
-		throw new Error(`Unsupported image type ${downloaded.mimeType}.`);
+		throw new Error(`Unsupported image type ${mimeType}.`);
 	}
 
-	const suggestedName = chooseFileName(url, downloaded.contentDisposition, extension);
+	const suggestedName = chooseFileName(staged.finalUrl || url, staged.contentDisposition, extension);
 	const attachmentPath = await app.fileManager.getAvailablePathForAttachment(suggestedName, note.path);
-	const file = await app.vault.createBinary(normalizePath(attachmentPath), downloaded.data);
+	const file = await app.vault.createBinary(normalizePath(attachmentPath), staged.data);
 	return { url, file };
-}
-
-async function requestRemoteImage(url: string): Promise<DownloadedImage> {
-	const response = await requestUrl({ url, throw: true });
-	if (response.status < 200 || response.status >= 300) {
-		throw new Error(`Image request returned HTTP ${response.status}.`);
-	}
-	const declaredType = headerValue(response.headers, 'content-type')?.split(';')[0].trim().toLowerCase();
-	const detectedType = detectImageMime(response.arrayBuffer);
-	const mimeType = chooseValidatedMimeType(declaredType, detectedType);
-	return {
-		data: response.arrayBuffer,
-		mimeType,
-		contentDisposition: headerValue(response.headers, 'content-disposition'),
-	};
-}
-
-function decodeDataImage(url: string): DownloadedImage {
-	const match = /^data:([^;,]+)(;base64)?,(.*)$/is.exec(url);
-	if (!match) throw new Error('Invalid data image URL.');
-	const declaredType = match[1].toLowerCase();
-	if (!declaredType.startsWith('image/')) throw new Error(`Unsupported data URL type ${declaredType}.`);
-
-	let bytes: Uint8Array;
-	try {
-		if (match[2]) {
-			const binary = atob(match[3]);
-			bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-		} else {
-			bytes = new TextEncoder().encode(decodeURIComponent(match[3]));
-		}
-	} catch (error) {
-		throw new Error(`Unable to decode data image: ${errorMessage(error)}`);
-	}
-
-	const detectedType = detectImageMime(bytes.buffer);
-	return {
-		data: bytes.buffer,
-		mimeType: chooseValidatedMimeType(declaredType, detectedType),
-	};
 }
 
 function chooseValidatedMimeType(declaredType: string | undefined, detectedType: string | null): string {
@@ -403,11 +360,6 @@ async function cleanupAssets(app: App, files: TFile[]): Promise<LocalizationFail
 		}
 	}
 	return failures;
-}
-
-function headerValue(headers: Record<string, string>, name: string): string | undefined {
-	const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === name.toLowerCase());
-	return entry?.[1];
 }
 
 function matches(bytes: Uint8Array, signature: number[]): boolean {

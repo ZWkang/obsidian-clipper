@@ -25,9 +25,9 @@ By default Web Clipper attempts to intelligently extract only the main article c
 
 By default, images keep their web-based URLs. This saves space in your vault, but the images will not be accessible offline or if a URL stops working.
 
-To save clipped images as local attachments, install and enable the **Web Clipper Companion** plugin in the target vault. Then enable **Download images to your vault** under **Web Clipper Settings** → **General**. You can override that default for the current clip from the menu next to **Add to Obsidian**.
+To save clipped images as local attachments, install and enable the desktop **Web Clipper Companion** plugin in the target vault. Then enable **Download images to your vault** under **Web Clipper Settings** → **General**. Each open vault binds its own available localhost port. The setting discovers all running companion services and shows their vault names and live ports. You can override that default for the current clip from the menu next to **Add to Obsidian**.
 
-The companion plugin downloads images referenced by the current clip's note content and properties, stores them using the vault's attachment-folder setting, and replaces successful URLs with Obsidian links. If an image fails to download, its remote URL remains unchanged and Obsidian displays the failure details. Copying to the clipboard and saving a Markdown file do not download images.
+The browser extension downloads images using the browser's authenticated session and transfers the bytes over localhost. The companion plugin stores them using the vault's attachment-folder setting and replaces successful URLs with Obsidian links. The service accepts uploads only from browser-extension origins, and staged bytes expire after 10 minutes. If an image fails to download or transfer, its remote URL remains unchanged and Obsidian displays the failure details. Copying to the clipboard and saving a Markdown file do not download images.
 
 Without the companion plugin, you can still download images for any file in Obsidian using the [[Command palette|command]] named **Download attachments for current file**. This command can also be mapped to a hotkey in Obsidian.
 

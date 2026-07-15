@@ -17,7 +17,7 @@ const options = {
 	external: ['obsidian', 'electron', '@codemirror/state', '@codemirror/view'],
 	format: 'cjs',
 	target: 'es2020',
-	platform: 'browser',
+	platform: 'node',
 	sourcemap: watch ? 'inline' : false,
 	outfile: resolve(outputDirectory, 'main.js'),
 	logLevel: 'info',

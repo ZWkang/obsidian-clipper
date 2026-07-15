@@ -1,4 +1,18 @@
-export const ASSET_LOCALIZATION_PROTOCOL_VERSION = 1 as const;
+export const ASSET_LOCALIZATION_PROTOCOL_VERSION = 2 as const;
+export const ASSET_TRANSFER_HOST = '127.0.0.1';
+export const ASSET_TRANSFER_PORT_START = 27123;
+export const ASSET_TRANSFER_PORT_END = 27223;
+
+export function buildAssetTransferBaseUrl(port: number): string {
+	return `http://${ASSET_TRANSFER_HOST}:${port}`;
+}
+
+export function getAssetTransferDiscoveryPorts(): number[] {
+	return Array.from(
+		{ length: ASSET_TRANSFER_PORT_END - ASSET_TRANSFER_PORT_START + 1 },
+		(_, index) => ASSET_TRANSFER_PORT_START + index,
+	);
+}
 
 export type BodyImageReferenceKind = 'markdown-image' | 'markdown-image-reference' | 'html-image';
 
@@ -17,15 +31,27 @@ export interface PropertyImageReference {
 	listIndex?: number;
 }
 
-export interface AssetLocalizationJobV1 {
+export interface AssetTransferFailure {
+	url: string;
+	message: string;
+}
+
+export interface AssetTransferReference {
+	url: string;
+	key: string;
+}
+
+export interface AssetLocalizationJobV2 {
 	version: typeof ASSET_LOCALIZATION_PROTOCOL_VERSION;
 	id: string;
 	bodyReferences: BodyImageReference[];
 	propertyReferences: PropertyImageReference[];
+	transfers: AssetTransferReference[];
+	transferFailures: AssetTransferFailure[];
 }
 
 export interface ParsedAssetLocalizationEnvelope {
-	job: AssetLocalizationJobV1;
+	job: AssetLocalizationJobV2;
 	body: string;
 	start: number;
 	end: number;
@@ -43,8 +69,15 @@ function jobMarkerPrefix(jobId: string): string {
 	return `<!-- obsidian-clipper-assets:job:${jobId}:`;
 }
 
-export function hasAssetReferences(job: AssetLocalizationJobV1): boolean {
+export function hasAssetReferences(job: AssetLocalizationJobV2): boolean {
 	return job.bodyReferences.length > 0 || job.propertyReferences.length > 0;
+}
+
+export function collectAssetUrls(job: AssetLocalizationJobV2): string[] {
+	return [...new Set([
+		...job.bodyReferences.map(reference => reference.url),
+		...job.propertyReferences.map(reference => reference.url),
+	])];
 }
 
 export function buildAssetLocalizationCallbackUrl(jobId: string, vault: string): string {
@@ -52,7 +85,7 @@ export function buildAssetLocalizationCallbackUrl(jobId: string, vault: string):
 	return `obsidian://web-clipper-localize?job=${encodeURIComponent(jobId)}${vaultParameter}`;
 }
 
-export function wrapBodyWithAssetLocalizationJob(body: string, job: AssetLocalizationJobV1): string {
+export function wrapBodyWithAssetLocalizationJob(body: string, job: AssetLocalizationJobV2): string {
 	if (!hasAssetReferences(job)) return body;
 
 	const encodedJob = encodeURIComponent(JSON.stringify(job));
@@ -100,7 +133,7 @@ export function parseAssetLocalizationEnvelope(noteContent: string, jobId: strin
 		throw new Error(`Asset localization job ${jobId} contains an invalid manifest: ${String(error)}`);
 	}
 
-	if (!isAssetLocalizationJobV1(parsed) || parsed.id !== jobId) {
+	if (!isAssetLocalizationJobV2(parsed) || parsed.id !== jobId) {
 		throw new Error(`Asset localization job ${jobId} uses an unsupported or mismatched protocol.`);
 	}
 
@@ -112,13 +145,15 @@ export function parseAssetLocalizationEnvelope(noteContent: string, jobId: strin
 	};
 }
 
-export function isAssetLocalizationJobV1(value: unknown): value is AssetLocalizationJobV1 {
+export function isAssetLocalizationJobV2(value: unknown): value is AssetLocalizationJobV2 {
 	if (!value || typeof value !== 'object') return false;
-	const job = value as Partial<AssetLocalizationJobV1>;
-	return job.version === ASSET_LOCALIZATION_PROTOCOL_VERSION
+	const job = value as Partial<AssetLocalizationJobV2>;
+	if (!(job.version === ASSET_LOCALIZATION_PROTOCOL_VERSION
 		&& typeof job.id === 'string'
 		&& Array.isArray(job.bodyReferences)
 		&& Array.isArray(job.propertyReferences)
+		&& Array.isArray(job.transfers)
+		&& Array.isArray(job.transferFailures)
 		&& job.bodyReferences.every(reference =>
 			reference
 			&& (reference.kind === 'markdown-image'
@@ -136,7 +171,29 @@ export function isAssetLocalizationJobV1(value: unknown): value is AssetLocaliza
 			&& typeof reference.url === 'string'
 			&& (reference.listIndex === undefined
 				|| (Number.isInteger(reference.listIndex) && reference.listIndex >= 0))
-		);
+		)
+		&& job.transfers.every(transfer =>
+			transfer
+			&& typeof transfer.url === 'string'
+			&& typeof transfer.key === 'string'
+			&& /^[A-Za-z0-9-]{1,128}$/.test(transfer.key)
+		)
+		&& job.transferFailures.every(failure =>
+			failure
+			&& typeof failure.url === 'string'
+			&& typeof failure.message === 'string'
+		))) return false;
+
+	const referencedUrls = new Set([
+		...job.bodyReferences.map(reference => reference.url),
+		...job.propertyReferences.map(reference => reference.url),
+	]);
+	const transferUrls = new Set(job.transfers.map(transfer => transfer.url));
+	const transferKeys = new Set(job.transfers.map(transfer => transfer.key));
+	return transferUrls.size === job.transfers.length
+		&& transferKeys.size === job.transfers.length
+		&& referencedUrls.size === transferUrls.size
+		&& [...referencedUrls].every(url => transferUrls.has(url));
 }
 
 export function validateBodyReferences(body: string, references: BodyImageReference[]): void {

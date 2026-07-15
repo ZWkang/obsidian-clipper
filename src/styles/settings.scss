@@ -196,6 +196,33 @@ label {
 	}
 }
 
+.companion-service-status {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	margin-top: 0.4rem;
+	font-size: var(--font-ui-smallest);
+	color: var(--text-muted);
+
+	.companion-service-status-dot {
+		width: 0.5rem;
+		height: 0.5rem;
+		border-radius: 50%;
+		background: var(--text-faint);
+		box-shadow: 0 0 0 2px var(--background-secondary);
+	}
+
+	&.is-connected {
+		color: var(--text-success);
+		.companion-service-status-dot { background: var(--color-green); }
+	}
+
+	&.is-disconnected {
+		color: var(--text-error);
+		.companion-service-status-dot { background: var(--color-red); }
+	}
+}
+
 #sidebar {
 	overflow: scroll;
 	padding: 16px 16px 24px 16px;

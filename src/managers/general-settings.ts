@@ -18,6 +18,8 @@ import { getClipHistory } from '../utils/storage-utils';
 import dayjs from 'dayjs';
 import weekOfYear from 'dayjs/plugin/weekOfYear';
 import { showModal, hideModal } from '../utils/modal-utils';
+import { getAssetTransferHealth } from '../utils/asset-transfer-client';
+import { ASSET_TRANSFER_PORT_END, ASSET_TRANSFER_PORT_START } from '../utils/asset-localization-protocol';
 
 dayjs.extend(weekOfYear);
 
@@ -27,6 +29,8 @@ const STORE_URLS = {
 	safari: 'https://apps.apple.com/us/app/obsidian-web-clipper/id6720708363',
 	edge: 'https://microsoftedge.microsoft.com/addons/detail/obsidian-web-clipper/eigdjhmgnaaeaonimdklocfekkaanfme'
 };
+
+let companionHealthTimer: ReturnType<typeof setInterval> | null = null;
 
 export function updateVaultList(): void {
 	const vaultList = document.getElementById('vault-list') as HTMLUListElement;
@@ -217,6 +221,7 @@ export function initializeGeneralSettings(): void {
 		initializeLegacyModeToggle();
 		initializeSilentOpenToggle();
 		initializeDownloadImagesToVaultToggle();
+		initializeCompanionServiceStatus();
 		initializeVaultInput();
 		initializeOpenBehaviorDropdown();
 		initializeKeyboardShortcuts();
@@ -351,6 +356,54 @@ function initializeDownloadImagesToVaultToggle(): void {
 	initializeSettingToggle('download-images-to-vault-toggle', generalSettings.downloadImagesToVault, (checked) => {
 		saveSettings({ ...generalSettings, downloadImagesToVault: checked });
 	});
+}
+
+function initializeCompanionServiceStatus(): void {
+	const container = document.getElementById('companion-transfer-status');
+	const statusText = document.getElementById('companion-transfer-status-text');
+	if (!container || !statusText) return;
+
+	const refresh = async () => {
+		container.classList.remove('is-connected', 'is-disconnected');
+		container.classList.add('is-checking');
+		statusText.textContent = getMessage('companionServiceChecking');
+
+		let health: Awaited<ReturnType<typeof getAssetTransferHealth>>;
+		try {
+			health = await getAssetTransferHealth();
+		} catch (error) {
+			health = {
+				ok: false,
+				services: [],
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
+		container.classList.remove('is-checking');
+		if (health.ok && health.services.length > 0) {
+			container.classList.add('is-connected');
+			const serviceDetails = health.services.map(service =>
+				`${service.vault || getMessage('companionServiceUnknownVault')} · ${service.host}:${service.port}`
+			).join('  |  ');
+			statusText.textContent = getMessage('companionServicesConnected', [
+				health.services.length.toString(),
+				serviceDetails,
+			]);
+			container.title = '';
+			return;
+		}
+
+		container.classList.add('is-disconnected');
+		statusText.textContent = getMessage('companionServiceDisconnected', `${ASSET_TRANSFER_PORT_START}–${ASSET_TRANSFER_PORT_END}`);
+		container.title = health.error || '';
+	};
+
+	void refresh();
+	if (companionHealthTimer !== null) clearInterval(companionHealthTimer);
+	companionHealthTimer = setInterval(() => void refresh(), 5000);
+	window.addEventListener('beforeunload', () => {
+		if (companionHealthTimer !== null) clearInterval(companionHealthTimer);
+		companionHealthTimer = null;
+	}, { once: true });
 }
 
 function initializeOpenBehaviorDropdown(): void {

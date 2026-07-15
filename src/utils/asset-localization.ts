@@ -2,7 +2,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import { Property, PropertyType } from '../types/types';
 import {
 	ASSET_LOCALIZATION_PROTOCOL_VERSION,
-	AssetLocalizationJobV1,
+	AssetLocalizationJobV2,
 	BodyImageReference,
 	PropertyImageReference,
 } from './asset-localization-protocol';
@@ -29,12 +29,20 @@ export function createAssetLocalizationJob(
 	properties: Property[],
 	propertyTypes: PropertyType[],
 	id: string = crypto.randomUUID(),
-): AssetLocalizationJobV1 {
+): AssetLocalizationJobV2 {
+	const bodyReferences = extractBodyImageReferences(body);
+	const propertyReferences = extractPropertyImageReferences(properties, propertyTypes);
+	const urls = [...new Set([
+		...bodyReferences.map(reference => reference.url),
+		...propertyReferences.map(reference => reference.url),
+	])];
 	return {
 		version: ASSET_LOCALIZATION_PROTOCOL_VERSION,
 		id,
-		bodyReferences: extractBodyImageReferences(body),
-		propertyReferences: extractPropertyImageReferences(properties, propertyTypes),
+		bodyReferences,
+		propertyReferences,
+		transfers: urls.map((url, index) => ({ url, key: `asset-${index + 1}` })),
+		transferFailures: [],
 	};
 }
 
@@ -102,7 +110,7 @@ export function extractPropertyImageReferences(
 		if (propertyType === 'multitext') {
 			const values = parseMultitextProperty(property.value);
 			values.forEach((value, listIndex) => {
-				if (looksLikePropertyImageUrl(value)) {
+				if (looksLikePropertyImageUrl(value, property.name)) {
 					references.push({ propertyName: property.name, url: value, listIndex });
 				}
 			});
@@ -110,7 +118,7 @@ export function extractPropertyImageReferences(
 		}
 
 		const value = property.value.trim();
-		if (looksLikePropertyImageUrl(value)) {
+		if (looksLikePropertyImageUrl(value, property.name)) {
 			references.push({ propertyName: property.name, url: value });
 		}
 	}
@@ -168,9 +176,10 @@ function isDownloadableImageSource(value: string): boolean {
 	return /^(https?:\/\/|data:image\/)/i.test(value.trim());
 }
 
-function looksLikePropertyImageUrl(value: string): boolean {
+function looksLikePropertyImageUrl(value: string, propertyName: string): boolean {
 	if (/^data:image\//i.test(value)) return true;
 	if (!/^https?:\/\//i.test(value)) return false;
+	if (/^(?:image|cover|thumbnail|banner|favicon|icon|poster)$/i.test(propertyName.trim())) return true;
 	try {
 		const pathname = new URL(value).pathname;
 		const extension = pathname.split('.').pop()?.toLowerCase() || '';

@@ -5,6 +5,17 @@ import { TextHighlightData } from './utils/highlighter';
 import { debounce } from './utils/debounce';
 import { Settings } from './types/types';
 import { debugLog } from './utils/debug';
+import {
+	AssetTransferFailure,
+	AssetTransferReference,
+	buildAssetTransferBaseUrl,
+	getAssetTransferDiscoveryPorts,
+} from './utils/asset-localization-protocol';
+import { AssetTransferService, selectAssetTransferService } from './utils/asset-transfer-routing';
+
+let cachedAssetTransferServices: AssetTransferService[] = [];
+let lastFullAssetTransferScan = 0;
+const ASSET_TRANSFER_RESCAN_INTERVAL_MS = 30_000;
 
 const YOUTUBE_EMBED_RULE_ID = 9001;
 const YOUTUBE_INNERTUBE_RULE_ID = 9002;
@@ -330,6 +341,147 @@ browser.runtime.onMessage.addListener((request: unknown) => {
 			return { ok: false, status: 0, text: '', error: 'CORS_PERMISSION_NEEDED' };
 		});
 });
+
+browser.runtime.onMessage.addListener((request: unknown) => {
+	if (typeof request !== 'object' || request === null) return;
+	const action = (request as any).action;
+
+	if (action === 'getAssetTransferHealth') {
+		return discoverAssetTransferServices(false);
+	}
+
+	if (action === 'stageAssetTransferJob') {
+		const { jobId, assets, expectedVault } = request as { jobId?: string; assets?: unknown; expectedVault?: unknown };
+		if (!jobId || !Array.isArray(assets) || !assets.every(isAssetTransferReference)) {
+			return Promise.resolve({
+				ok: false,
+				failures: [],
+				error: 'Asset transfer request is missing a valid job ID or URL list.',
+			});
+		}
+		return stageAssetTransferJob(jobId, assets, typeof expectedVault === 'string' ? expectedVault : '');
+	}
+});
+
+function isAssetTransferReference(value: unknown): value is AssetTransferReference {
+	return typeof value === 'object'
+		&& value !== null
+		&& typeof (value as AssetTransferReference).url === 'string'
+		&& /^(?:https?:\/\/|data:image\/)/i.test((value as AssetTransferReference).url)
+		&& typeof (value as AssetTransferReference).key === 'string'
+		&& /^[A-Za-z0-9-]{1,128}$/.test((value as AssetTransferReference).key);
+}
+
+async function probeAssetTransferService(port: number): Promise<AssetTransferService | null> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 750);
+	try {
+		const response = await fetch(`${buildAssetTransferBaseUrl(port)}/health`, {
+			cache: 'no-store',
+			headers: { 'X-Web-Clipper-Probe': '1' },
+			signal: controller.signal,
+		});
+		const result = await response.json() as Partial<AssetTransferService>;
+		if (!response.ok
+			|| result.ok !== true
+			|| result.service !== 'obsidian-web-clipper-companion'
+			|| result.port !== port
+			|| typeof result.vault !== 'string') return null;
+		return {
+			ok: true,
+			service: 'obsidian-web-clipper-companion',
+			version: typeof result.version === 'string' ? result.version : 'unknown',
+			host: typeof result.host === 'string' ? result.host : '127.0.0.1',
+			port,
+			vault: result.vault,
+			lastFocusedAt: typeof result.lastFocusedAt === 'number' ? result.lastFocusedAt : 0,
+		};
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+async function discoverAssetTransferServices(forceFullScan: boolean): Promise<{
+	ok: boolean;
+	services: AssetTransferService[];
+	error?: string;
+}> {
+	const now = Date.now();
+	const shouldScanAll = forceFullScan
+		|| cachedAssetTransferServices.length === 0
+		|| now - lastFullAssetTransferScan >= ASSET_TRANSFER_RESCAN_INTERVAL_MS;
+	const ports = shouldScanAll
+		? getAssetTransferDiscoveryPorts()
+		: cachedAssetTransferServices.map(service => service.port);
+	const services = (await Promise.all(ports.map(probeAssetTransferService)))
+		.filter((service): service is AssetTransferService => service !== null);
+
+	if (shouldScanAll) lastFullAssetTransferScan = now;
+	cachedAssetTransferServices = services;
+	return services.length > 0
+		? { ok: true, services }
+		: { ok: false, services: [], error: 'No running Web Clipper Companion service was discovered.' };
+}
+
+async function stageAssetTransferJob(jobId: string, assets: AssetTransferReference[], expectedVault: string): Promise<{
+	ok: boolean;
+	failures: AssetTransferFailure[];
+}> {
+	const discovery = await discoverAssetTransferServices(true);
+	if (!discovery.ok) {
+		const message = discovery.error || 'No running Web Clipper Companion service was discovered.';
+		return { ok: true, failures: assets.map(({ url }) => ({ url, message })) };
+	}
+	const selection = selectAssetTransferService(discovery.services, expectedVault);
+	if (!selection.service) {
+		return { ok: true, failures: assets.map(({ url }) => ({ url, message: selection.error })) };
+	}
+
+	const results = await Promise.all(assets.map(asset => stageImageAsset(jobId, asset, selection.service.port)));
+	return {
+		ok: true,
+		failures: results.filter((result): result is AssetTransferFailure => result !== null),
+	};
+}
+
+async function stageImageAsset(jobId: string, asset: AssetTransferReference, port: number): Promise<AssetTransferFailure | null> {
+	const { key, url } = asset;
+	try {
+		const imageResponse = await fetch(url, {
+			credentials: 'include',
+			redirect: 'follow',
+			cache: 'no-store',
+		});
+		if (!imageResponse.ok) {
+			throw new Error(`Image request returned HTTP ${imageResponse.status}.`);
+		}
+
+		const data = await imageResponse.arrayBuffer();
+		const uploadUrl = `${buildAssetTransferBaseUrl(port)}/v1/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(key)}`;
+		const finalUrl = imageResponse.url && !imageResponse.url.startsWith('data:') ? imageResponse.url : '';
+		const uploadResponse = await fetch(uploadUrl, {
+			method: 'POST',
+			headers: {
+				'Content-Type': imageResponse.headers.get('content-type') || 'application/octet-stream',
+				'X-Web-Clipper-Content-Disposition': encodeURIComponent(imageResponse.headers.get('content-disposition') || ''),
+				'X-Web-Clipper-Final-Url': encodeURIComponent(finalUrl),
+			},
+			body: data,
+		});
+		if (!uploadResponse.ok) {
+			const message = await uploadResponse.text();
+			throw new Error(message || `Companion upload returned HTTP ${uploadResponse.status}.`);
+		}
+		return null;
+	} catch (error) {
+		return {
+			url,
+			message: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
 
 browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime.MessageSender, sendResponse: (response?: any) => void): true | undefined => {
 	if (typeof request === 'object' && request !== null) {
