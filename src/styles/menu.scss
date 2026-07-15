@@ -56,6 +56,20 @@
 	}
 }
 
+.menu-separator {
+	height: 1px;
+	margin: 0.25rem 0.5rem;
+	background-color: var(--background-modifier-border);
+}
+
+.clip-image-download-item {
+	min-width: 230px;
+
+	.menu-item-title {
+		flex: 1;
+	}
+}
+
 .is-mobile {
 	.menu {
 		width: 100%;

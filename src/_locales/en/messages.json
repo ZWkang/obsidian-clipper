@@ -218,6 +218,15 @@
 	"editProvider": {
 		"message": "Edit provider"
 	},
+	"downloadImagesForThisClip": {
+		"message": "Download images for this clip"
+	},
+	"downloadImagesToVault": {
+		"message": "Download images to your vault"
+	},
+	"downloadImagesToVaultDescription": {
+		"message": "Requires the Web Clipper companion plugin in the target vault. Images use your Obsidian attachment folder settings."
+	},
 	"editTemplate": {
 		"message": "Edit template"
 	},

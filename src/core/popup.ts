@@ -23,6 +23,8 @@ import { sanitizeFileName } from '../utils/string-utils';
 import { saveFile } from '../utils/file-utils';
 import { translatePage, getMessage, setupLanguageAndDirection } from '../utils/i18n';
 import { formatPropertyValue } from '../utils/shared';
+import { createAssetLocalizationJob } from '../utils/asset-localization';
+import { hasAssetReferences, wrapBodyWithAssetLocalizationJob } from '../utils/asset-localization-protocol';
 
 interface ReaderModeResponse {
 	success: boolean;
@@ -35,6 +37,7 @@ let templates: Template[] = [];
 let currentVariables: { [key: string]: string } = {};
 let currentTabId: number | undefined;
 let lastSelectedVault: string | null = null;
+let downloadImagesForThisClip = false;
 
 const isSidePanel = window.location.pathname.includes('side-panel.html');
 const urlParams = new URLSearchParams(window.location.search);
@@ -284,6 +287,7 @@ function setupMessageListeners() {
 
 document.addEventListener('DOMContentLoaded', async function() {
 	loadedSettings = await loadSettings();
+	downloadImagesForThisClip = loadedSettings.downloadImagesToVault;
 	if (isIframe) {
 		document.documentElement.classList.add('is-embedded');
 	}
@@ -383,6 +387,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 				await initializeUI();
 
 				determineMainAction();
+				initializeClipImageDownloadToggle();
 
 				const showMoreActionsButton = document.getElementById('show-variables');
 				if (showMoreActionsButton) {
@@ -1309,6 +1314,22 @@ function determineMainAction() {
 	}
 }
 
+function initializeClipImageDownloadToggle(): void {
+	const toggle = document.getElementById('clip-download-images-toggle') as HTMLInputElement | null;
+	if (!toggle) return;
+
+	setClipImageDownloadState(downloadImagesForThisClip);
+	toggle.addEventListener('change', () => setClipImageDownloadState(toggle.checked));
+}
+
+function setClipImageDownloadState(checked: boolean): void {
+	downloadImagesForThisClip = checked;
+	const toggle = document.getElementById('clip-download-images-toggle') as HTMLInputElement | null;
+	if (!toggle) return;
+	toggle.checked = checked;
+	toggle.closest('.checkbox-container')?.classList.toggle('is-enabled', checked);
+}
+
 async function handleClipObsidian(): Promise<void> {
 	if (!currentTemplate) return;
 
@@ -1338,7 +1359,21 @@ async function handleClipObsidian(): Promise<void> {
 		const properties = getPropertiesFromDOM();
 
 		const frontmatter = await generateFrontmatter(properties);
-		const fileContent = frontmatter + noteContentField.value;
+		const noteContent = noteContentField.value;
+		let fileContent = frontmatter + noteContent;
+		let assetLocalizationJobId: string | undefined;
+
+		if (downloadImagesForThisClip) {
+			const assetJob = createAssetLocalizationJob(
+				noteContent,
+				properties,
+				generalSettings.propertyTypes,
+			);
+			if (hasAssetReferences(assetJob)) {
+				fileContent = frontmatter + wrapBodyWithAssetLocalizationJob(noteContent, assetJob);
+				assetLocalizationJobId = assetJob.id;
+			}
+		}
 
 		// Save to Obsidian
 		const selectedVault = vaultDropdown.value || currentTemplate.vault || '';
@@ -1346,12 +1381,20 @@ async function handleClipObsidian(): Promise<void> {
 		const noteName = isDailyNote ? '' : noteNameField?.value || '';
 		const path = isDailyNote ? '' : pathField?.value || '';
 
-		await saveToObsidian(fileContent, noteName, path, selectedVault, currentTemplate.behavior);
+		await saveToObsidian(
+			fileContent,
+			noteName,
+			path,
+			selectedVault,
+			currentTemplate.behavior,
+			assetLocalizationJobId,
+		);
 		const tabInfo = await getCurrentTabInfo();
 		await incrementStat('addToObsidian', selectedVault, path, tabInfo.url, tabInfo.title);
 
 		lastSelectedVault = selectedVault;
 		await setLocalStorage('lastSelectedVault', lastSelectedVault);
+		setClipImageDownloadState(loadedSettings.downloadImagesToVault);
 
 		if (!isSidePanel) {
 			setTimeout(() => window.close(), 500);

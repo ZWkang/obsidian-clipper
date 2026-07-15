@@ -23,9 +23,13 @@ By default Web Clipper attempts to intelligently extract only the main article c
 
 ## Download images
 
-Images are not automatically downloaded when you use Web Clipper. Instead, images link to their web-based URL. This saves space in your vault but it means the images will not be accessible offline, or if the URL stops working.
+By default, images keep their web-based URLs. This saves space in your vault, but the images will not be accessible offline or if a URL stops working.
 
-You can download images for any file in Obsidian using the [[Command palette|command]] named **Download attachments for current file**. This command can also be mapped to a hotkey in Obsidian.
+To save clipped images as local attachments, install and enable the **Web Clipper Companion** plugin in the target vault. Then enable **Download images to your vault** under **Web Clipper Settings** → **General**. You can override that default for the current clip from the menu next to **Add to Obsidian**.
+
+The companion plugin downloads images referenced by the current clip's note content and properties, stores them using the vault's attachment-folder setting, and replaces successful URLs with Obsidian links. If an image fails to download, its remote URL remains unchanged and Obsidian displays the failure details. Copying to the clipboard and saving a Markdown file do not download images.
+
+Without the companion plugin, you can still download images for any file in Obsidian using the [[Command palette|command]] named **Download attachments for current file**. This command can also be mapped to a hotkey in Obsidian.
 
 ## Hotkeys
 
@@ -59,4 +63,3 @@ Footer functionality includes:
 - **Vault** dropdown to switch between saved vaults added in Web Clipper settings.
 - **Folder** field to define which folder to save to.
 - **Interpreter** to run [[Interpret web pages|natural language prompts]] on the page.
-

@@ -218,6 +218,15 @@
 	"editProvider": {
 		"message": "编辑提供商"
 	},
+	"downloadImagesForThisClip": {
+		"message": "本次剪藏下载图片"
+	},
+	"downloadImagesToVault": {
+		"message": "下载图片到仓库"
+	},
+	"downloadImagesToVaultDescription": {
+		"message": "需要在目标仓库中安装 Web Clipper 配套插件。图片将遵循 Obsidian 的附件目录设置。"
+	},
 	"editTemplate": {
 		"message": "编辑模板"
 	},

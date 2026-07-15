@@ -5,6 +5,7 @@ import { Template, Property } from '../types/types';
 import { generalSettings, incrementStat } from './storage-utils';
 import { copyToClipboard } from './clipboard-utils';
 import { getMessage } from './i18n';
+import { buildAssetLocalizationCallbackUrl } from './asset-localization-protocol';
 
 export async function generateFrontmatter(properties: Property[]): Promise<string> {
 	const typeMap: Record<string, string> = {};
@@ -49,6 +50,7 @@ export async function saveToObsidian(
 	path: string,
 	vault: string,
 	behavior: Template['behavior'],
+	assetLocalizationJobId?: string,
 ): Promise<void> {
 	let obsidianUrl: string;
 
@@ -80,6 +82,11 @@ export async function saveToObsidian(
 	// Add silent parameter if silentOpen is enabled
 	if (generalSettings.silentOpen) {
 		obsidianUrl += '&silent=true';
+	}
+
+	if (assetLocalizationJobId) {
+		const callbackUrl = buildAssetLocalizationCallbackUrl(assetLocalizationJobId, vault);
+		obsidianUrl += `&x-success=${encodeURIComponent(callbackUrl)}`;
 	}
 
 	if (generalSettings.legacyMode) {

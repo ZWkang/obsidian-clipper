@@ -53,6 +53,14 @@ This will create three directories:
 - `dist_firefox/` for the Firefox version
 - `dist_safari/` for the Safari version
 
+To build the optional Obsidian companion plugin used for automatic image downloads:
+
+```
+npm run build:companion
+```
+
+This creates `companion-plugin/dist/`. Copy that directory's contents to `<vault>/.obsidian/plugins/obsidian-web-clipper-companion`, reload Obsidian, and enable **Web Clipper Companion** under Community plugins.
+
 ### Install the extension locally
 
 For Chromium browsers, such as Chrome, Brave, Edge, and Arc:

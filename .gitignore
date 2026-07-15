@@ -12,6 +12,7 @@ dev_safari/
 dist/
 dist_firefox/
 dist_safari/
+companion-plugin/dist/
 builds/
 changelogs/
 assets/shared

@@ -1,0 +1,9 @@
+{
+	"id": "obsidian-web-clipper-companion",
+	"name": "Web Clipper Companion",
+	"version": "1.0.0",
+	"minAppVersion": "1.8.3",
+	"description": "Downloads images from Web Clipper captures into your vault and rewrites their links.",
+	"author": "ZWkang",
+	"isDesktopOnly": false
+}
