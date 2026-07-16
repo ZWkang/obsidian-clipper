@@ -113,11 +113,11 @@ export class AssetTransferServer {
 	private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
 		const url = new URL(request.url || '/', `http://${ASSET_TRANSFER_HOST}:${this.getBoundPort()}`);
 		const origin = request.headers.origin || '';
-		if (!isAllowedExtensionOrigin(origin)) {
+		if (!isAllowedExtensionRequest(request, url, origin)) {
 			this.writeJson(response, 403, { ok: false, error: 'Companion requests are accepted only from browser extension origins.' });
 			return;
 		}
-		this.setCorsHeaders(response, origin);
+		if (origin) this.setCorsHeaders(response, origin);
 		if (request.method === 'OPTIONS') {
 			response.writeHead(204);
 			response.end();
@@ -238,6 +238,18 @@ export class AssetTransferServer {
 
 function isAllowedExtensionOrigin(origin: string): boolean {
 	return /^(?:chrome-extension|moz-extension|safari-web-extension):\/\/[A-Za-z0-9._-]+$/i.test(origin);
+}
+
+function isAllowedExtensionRequest(request: IncomingMessage, url: URL, origin: string): boolean {
+	if (isAllowedExtensionOrigin(origin)) return true;
+
+	// Privileged extension background GET requests may omit Origin when the
+	// extension has host permissions. Ordinary web pages cannot send this custom
+	// header cross-origin without an Origin-bearing preflight, which is rejected.
+	return origin === ''
+		&& request.method === 'GET'
+		&& url.pathname === '/health'
+		&& request.headers['x-web-clipper-probe'] === '1';
 }
 
 async function readRequestBody(request: IncomingMessage): Promise<Buffer> {

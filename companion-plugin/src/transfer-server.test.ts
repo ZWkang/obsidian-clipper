@@ -23,8 +23,10 @@ describe('asset transfer server', () => {
 			expect(preflight.status).toBe(204);
 			expect(preflight.headers.get('access-control-allow-methods')).toContain('GET');
 
+			// Chromium extension background GET requests can omit Origin even when
+			// the extension has host permissions.
 			const health = await fetch(`${baseUrl}/health`, {
-				headers: { Origin: 'chrome-extension://test-extension', 'X-Web-Clipper-Probe': '1' },
+				headers: { 'X-Web-Clipper-Probe': '1' },
 			}).then(response => response.json());
 			expect(health).toMatchObject({
 				ok: true,
@@ -81,6 +83,18 @@ describe('asset transfer server', () => {
 					body: Uint8Array.from([0x89, 0x50]),
 				},
 			);
+			expect(response.status).toBe(403);
+		} finally {
+			await server.stop();
+		}
+	});
+
+	it('rejects originless health requests without the extension probe marker', async () => {
+		const server = new AssetTransferServer(() => 'Work Vault', 0);
+		await server.start();
+		try {
+			const status = server.getStatus();
+			const response = await fetch(`http://${status.host}:${status.port}/health`);
 			expect(response.status).toBe(403);
 		} finally {
 			await server.stop();
